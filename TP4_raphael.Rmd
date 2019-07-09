@@ -1,0 +1,181 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r message=FALSE, warning=FALSE}
+require(dplyr)
+require(ggplot2)
+require(reshape2)
+```
+#ANOVA 1 FACTEURS
+
+H0 : moyennes égales
+H1 : au moins un couple de moyennes inégales
+
+```{r}
+my.dat <- data.frame(
+  R1=c(62,60,63,59,rep(NA,4)),
+  R2=c(63,67,71,64,65,66,rep(NA,2)),
+  R3=c(68,66,71,67,68,68,rep(NA,2)),
+  R4=c(56,62,60,61,63,64,63,59)
+    )
+
+my.dat.melt <- my.dat %>% melt()
+```
+
+Calculer la variance intra-groupe et inter-groupe, puis calculer le rapport $F=\frac{\frac{S^2_A}{k-1}}{\frac{S^2_R}{n-k}}$
+
+```{r}
+var.each <- my.dat.melt %>% na.omit() %>% group_by(variable) %>% summarise(var = var(value))
+var.each
+```
+
+SCE totale = SCE expliquative + SCE residuelle
+
+```{r}
+
+sd_un <- function(X){
+  sqrt(sum((X - mean(X))^2)/length(X))
+}
+
+var_un <- function(X){
+  sum((X - mean(X))^2)/length(X)
+}
+
+my.dat.melt <- my.dat.melt %>% na.omit()
+var.each <- my.dat.melt %>% group_by(variable) %>% summarise(mean=mean(value),sd_un = sd_un(value),var_un=var_un(value),n=n())
+var.each
+moy.glob <- mean(my.dat.melt$value)
+moy.glob
+n <- nrow(my.dat.melt)
+k <- unique(my.dat.melt$variable) %>% length()
+cc <- aov(value~variable,my.dat.melt)
+summary(cc)
+```
+
+```{r}
+SCE_exp <- apply(as.data.frame(var.each[,-1]),1,function(x){x["n"]*(x["mean"]-moy.glob)^2}) %>% sum()
+var_inter <- SCE_exp / n
+
+
+SCE_res <- apply(as.data.frame(var.each[,-1]),1,function(x){x["var_un"]*x["n"]}) %>% sum()
+var_intra <- SCE_res / n
+
+var_tot <- var_intra + var_inter
+SCE_tot <- SCE_exp + SCE_res
+
+cbind(SCE_tot,SCE_exp,SCE_res,var_tot,var_intra,var_inter)
+
+```
+
+$R^2=\frac{S^2_A}{S^2}=\frac{var_{exp}}{var_{tot}}$
+
+```{r}
+R2 <- var_intra/var_tot
+F <- (var_inter/(k-1))/(var_intra/(n-k))
+F
+pf( F ,k-1,n-k, lower.tail=FALSE )
+```
+
+Test de Bartlett = Homoscedasticité
+H0 : variances égales
+H1 : au moins un couple de variance inégales
+
+```{r}
+lapply(split(my.dat.melt,unique(my.dat.melt$variable)),function(x){shapiro.test(x$value)})
+bartlett.test(formula=value~variable,data=my.dat.melt)
+```
+
+#ANOVA 2 FACTEURS
+
+3 effets à mesurer :
+* Effet de Saccharose
+* Effet de CornStep
+* Effet Saccharose*CornStep
+
+
+```{r}
+my.dat <- data.frame(
+  Saccharose=paste0(c(15,25,15,25),"g/L"),
+  CornStep=paste0(c(20,20,30,30),"g/L"),
+  Ser1=c(0,95,32,75),
+  Ser2=c(10,70,49,86),
+  Ser3=c(0,76,41,70)
+)
+my.dat.melt <- my.dat %>% melt()
+my.dat.melt
+```
+
+```{r}
+
+my.dat.melt %>% group_by(Saccharose,CornStep) %>% summarise(mean = mean(value),value=list(value)) %>% ggplot(aes(x=Saccharose,y=mean,col=CornStep)) + geom_point() + theme_classic()
+cc <- aov(value~Saccharose+CornStep+Saccharose*CornStep,data=my.dat.melt)
+summary(cc)
+```
+
+Hypothèses :
+* H0 : $\mu_{i.}=\mu$;$\mu_{.j}=\mu$;$\mu_{ij}=\mu$
+* H1 : Au moins un couple de moyennes differentes
+
+$SCT = SCE_A + SCE_B + SCE_{AB} + SCR$
+
+
+```{r}
+moy.glob <- my.dat.melt$value %>% mean()
+n <- my.dat.melt$value %>% length()
+a <- my.dat.melt$Saccharose %>% unique() %>% length()
+b <- my.dat.melt$CornStep %>% unique() %>% length()
+
+
+mean.A <- my.dat.melt %>% group_by(Saccharose) %>% summarise(mean=mean(value),n=n())
+mean.B <- my.dat.melt %>% group_by(CornStep) %>% summarise(mean=mean(value),n=n())
+mean.AB <- my.dat.melt %>% group_by(Saccharose,CornStep) %>% summarise(mean = mean(value),n=n())
+
+SCE.A <- apply(as.data.frame(mean.A[,-1]),1,function(x){
+  x["n"]*(x["mean"] - moy.glob)^2
+})%>% sum()
+
+SCE.B <- apply(as.data.frame(mean.B[,-1]),1,function(x){
+  x["n"]*(x["mean"] - moy.glob)^2
+})%>% sum()
+
+SCE.AB <- apply(as.data.frame(mean.AB[,-1:-2]),1,function(x){
+  x["n"]*(x["mean"] - moy.glob)^2
+})%>% sum() - SCE.A - SCE.B
+
+SCR <- apply(my.dat.melt,1,function(x){
+  mean.cond <- mean.AB %>% as.data.frame() %>% dplyr::filter(Saccharose == x["Saccharose"] & CornStep == x["CornStep"]) %>% pull(mean)
+  ((as.numeric(x["value"]) - mean.cond)^2)
+})%>% sum()
+
+
+
+```
+
+##Test facteur A :
+
+```{r}
+F <- (SCE.A/(a-1))/(SCR/(n-a*b))
+F
+pf( F ,a-1,n-(a*b), lower.tail=FALSE )
+```
+
+##Test facteur B :
+
+```{r}
+F <- (SCE.B/(a-1))/(SCR/(n-a*b))
+F
+pf( F ,a-1,n-(a*b), lower.tail=FALSE )
+```
+
+##Test facteur AB :
+
+```{r}
+F <- (SCE.AB/(a-1)*(b-1))/(SCR/(n-a*b))
+F
+pf( F ,(a-1)*(b-1),n-(a*b), lower.tail=FALSE )
+```
+
+à faire : 
+Regression logistique :
+X continu et Y qualitatif à 2 paramètres

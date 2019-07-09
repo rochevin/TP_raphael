@@ -1,0 +1,161 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r message=FALSE, warning=FALSE}
+require(dplyr)
+require(ggplot2)
+require(reshape2)
+```
+
+```{r}
+data <- read.table("Copie de DonneesNaissances.csv",h=T,sep=";",dec=",")[,1:19]
+
+```
+
+#TP1
+
+```{r}
+
+data %>% select(EPoids0) %>% summary()
+
+data %>% ggplot(aes()) + geom_histogram(aes(x=EPoids0,y=..density..)) + geom_density(aes(x=EPoids0,y=..density..),col="red")+ theme_classic()
+
+boxplot(data$EPoids0)
+```
+
+```{r}
+cc = data %>% group_by(MCig10) %>% summarise(n = n()) %>% as.data.frame() 
+cc
+cc %>% ggplot(aes(x=MCig10,y=n)) + geom_bar(stat="identity") + theme_classic()
+```
+
+```{r}
+data %>% ggplot(aes(x=MCig10,y=EPoids0,fill=MCig10)) + geom_boxplot() + theme_classic()
+```
+
+
+#TP 2
+```{r}
+data %>% select(ETaille10) %>% summary()
+sd(data$ETaille10)
+
+data %>% ggplot(aes(x=ETaille10,y=..density..)) + geom_histogram() + geom_density(col="red")+ theme_classic()
+```
+
+
+```{r}
+shapiro.test(data$ETaille10)
+```
+
+H0 non rejeté, ETaille10 considéré comme suivant une loi normale
+
+```{r}
+
+n = nrow(data)
+moyenne = mean(data$ETaille10)
+m0 = 140
+variance = var(data$ETaille10)
+t = (moyenne - m0)/sqrt(variance/n)
+2*pt(abs(t), 114, lower=FALSE)
+t.test(data$ETaille10,mu = 140)
+```
+
+Comparer des moyennes ETaille0 en fonction du sexe
+
+```{r}
+female.taille <- data %>% filter(ESx == "F") %>% pull(ETaille0)
+male.taille <- data %>% filter(ESx == "M") %>% pull(ETaille0)
+m1 = female.taille %>% mean
+m2 = male.taille %>% mean
+n1 = length(female.taille)
+n2 = length(male.taille)
+v1 <- var(female.taille)
+v2 <- var(male.taille)
+stderrx <- (v1/n1)
+stderry <- (v2/n2)
+t = (m1 - m2)/sqrt(stderrx + stderry)
+df = n1+n2-2
+pval <- 2 * pt(-abs(t), df)
+t.test(ETaille0~ESx,data=data)
+```
+
+COmparer deux moyennes appariés
+```{r}
+data %>% select(EPoids0,EPoids10) %>% melt() %>% ggplot(aes(x=variable,y=value,fill=variable)) + geom_boxplot() + theme_classic()
+```
+
+
+Revient à tester D la difference entre les deux moyennes à la valeur nulle
+
+Avec student
+```{r}
+m0 <- 0
+x <- data %>% pull(MPoids0)
+y <- data %>% pull(MPoids10)
+t.test(x,y,paired = T)
+D <- x - y
+
+nx <- length(D)
+mx <- mean(D)
+vx <- var(D)
+stderr <- sqrt(vx/nx)
+tstat <- (mx - m0)/stderr
+df <- nx-1
+pval <- 2 * pt(-abs(tstat), df)
+pval
+```
+
+Avec wilcoxon
+```{r}
+m0 <- 0
+x <- data %>% pull(MPoids0)
+y <- data %>% pull(MPoids10)
+D <- x - y
+
+D <- x - m0
+ZEROES <- any(D == 0)
+if (ZEROES)
+  D <- D[D != 0]
+n <- length(D)
+r <- rank(abs(D))
+STATISTIC <- setNames(sum(r[D > 0]), "V")
+TIES <- length(r) != length(unique(r))
+```
+
+```{r}
+totest <- data %>% select(MPoids0,MPoids10) %>% melt()
+diff_obs <- totest %>% group_by(variable) %>% summarise(mean = mean(value)) %>% pull(mean)
+diff_obs <- abs(diff_obs[1] - diff_obs[2])
+nperm = 50000
+theo_diff = sapply(1:nperm,function(x){
+  diff_theo <- totest %>% mutate(variable = variable[sample(nrow(totest))]) %>% group_by(variable) %>% summarise(mean = mean(value)) %>% pull(mean)
+  abs(diff_theo[1] - diff_theo[2])
+})
+
+sum(theo_diff>diff_obs)/nperm
+
+```
+
+
+Liaison entre deux variables
+
+```{r}
+mat.dat <- data %>% group_by(ESx,ERh) %>% summarise(n = n())
+mat.dat
+dat.obs <-matrix(mat.dat$n,byrow = F,ncol=2)
+
+gran.tot <- sum(mat.dat$n)
+row.tot <- rowSums(dat.obs)
+col.tot <- colSums(dat.obs)
+dat.theo <- sapply(row.tot,function(x){(x*col.tot)/gran.tot})
+
+chistat <- sum(((as.vector(dat.obs)-as.vector(dat.theo))^2)/as.vector(dat.theo))
+
+
+chisq.test(as.vector(dat.obs),p = as.vector(dat.theo)/gran.tot)
+
+
+
+```
+

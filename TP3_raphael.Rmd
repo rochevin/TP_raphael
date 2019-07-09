@@ -1,0 +1,148 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r message=FALSE, warning=FALSE}
+require(dplyr)
+require(ggplot2)
+require(reshape2)
+```
+
+```{r}
+data <- read.table("Copie de DonneesNaissances.csv",h=T,sep=";",dec=",")[,1:19]
+my.dat <- na.omit(data)
+```
+
+Relation taille de l'enfant à 10 ans / taille de sa mère
+
+```{r fig.height=12, fig.width=12}
+my.dat %>% dplyr::select(ETaille10,MTaille) %>% ggplot(aes(y=ETaille10,x=MTaille)) + theme_classic() + geom_point() + geom_smooth(method="lm")
+```
+
+```{r}
+cc <- lm(ETaille10~MTaille,data=my.dat)
+print(cc)
+summary(cc)
+cor(my.dat$ETaille10,my.dat$MTaille)
+```
+
+#Modèle linéaire
+
+$Y_i = B_0 + B_1 \times X_i + \epsilon_i$
+
+Hypothèses du modèle :
+
+* la distribution de l’erreur ε (résidus) est indépendante de X ou X est fixe,
+* l’erreur est centrée et de variance constante (homoscédasticité)
+* B0 et B1 constants
+* Les résidus du modèle suivnet une loi Normale de moyenne 0 et de variance v2
+
+```{r}
+X <- my.dat$MTaille
+Y <- my.dat$ETaille10
+n <- length(Y)
+
+```
+
+##Estimation des paramètres
+
+### Paramètre $B_1$
+
+```{r}
+covXY = (sum((Y - mean(Y))*(X - mean(X))))/n
+varX <- sum((X - mean(X))^2)/n
+B1 <- covXY/varX
+```
+
+### Paramètre $B_0$
+
+```{r}
+B0 <- mean(Y) - B1 * mean(X)
+```
+
+### Plot line
+
+```{r fig.height=6, fig.width=12}
+my.dat %>% dplyr::select(ETaille10,MTaille) %>% ggplot(aes(y=ETaille10,x=MTaille)) + theme_classic() + geom_point() + geom_abline(intercept = B0, slope = B1)
+```
+
+##Résidus 
+
+```{r}
+Ypred <- sapply(X,function(x){
+  B0 + B1 * x
+})
+res <- Y - Ypred
+
+varY <- sum((Y - mean(Y))^2)/n
+varYpred <- sum((Ypred - mean(Ypred))^2)/n
+varres <- sum((res - mean(res))^2)/n
+
+SCT <- varY * n
+SCE <- varYpred * n
+SCR <- varres * n
+R2 <- varYpred/varY
+R2.adj <- 1 - (((n-1)*(1-R2))/(n-2))
+```
+
+SS(Regression) = SS(Total) - S(Residual)
+
+
+##Test des paramètres
+http://www.jybaudot.fr/Correl_regress/testsreg.html
+
+Hypothèses :
+* $B_1 = 0$
+* $B_1 \diff 0$
+
+```{r}
+moyenne = B1
+m0 = 0
+varB1 <- (sum(res^2)/(n-2))/sum((X-mean(X))^2)
+t = (moyenne - m0)/sqrt(varB1)
+2*pt(abs(t), n - 2, lower=FALSE)
+```
+
+
+##Test du modèle
+
+Hypothèses :
+* $B = 0$
+* $B \diff 0$
+
+```{r}
+ddl <- n - 2
+F <- (SCE/SCR)*(n-2)
+pf( F ,1,ddl , lower.tail=FALSE )
+```
+
+##Diagnostic des hypothèses du modèle
+
+### Normalité des résidus
+```{r}
+shapiro.test(res)
+```
+
+```{r fig.height=6, fig.width=12}
+ggplot(data=data.frame(res=res,X=X),aes(y=res,x=X)) + geom_point() + theme_classic()
+```
+
+##Intervalles de confiances
+
+```{r}
+ci <- sapply(X,function(x){
+  1.96 * sqrt((sum(res^2)/(n-2))) * sqrt((1/n)+(((x-mean(X))^2)/((n-1)*varX)))
+})
+
+```
+
+
+```{r fig.height=6, fig.width=12}
+my.dat %>% dplyr::select(ETaille10,MTaille) %>% ggplot(aes(y=ETaille10,x=MTaille)) + theme_classic() +
+  geom_ribbon(ymin=Ypred - ci,ymax = Ypred + ci,alpha=0.5,fill="blue") +
+  geom_point() + geom_abline(intercept = B0, slope = B1) 
+
+```
+
+
+AT matrix <- influence des points sur la droite
